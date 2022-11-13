@@ -1,0 +1,170 @@
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: "{{ .Values.cluster.name }}"
+  labels:
+    cni: "{{ .Values.cluster.name }}-crs-cni"
+    ccm: "{{ .Values.cluster.name }}-crs-ccm"
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks: ["10.42.0.0/16"]
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: OscCluster
+    name: "{{ .Values.cluster.name }}"
+  controlPlaneRef:
+    kind: KubeadmControlPlane
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    name: "{{ .Values.cluster.name }}-control-plane"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: OscCluster
+metadata:
+  name: "{{ .Values.cluster.name }}"
+spec:
+  network:
+    clusterName: "{{ .Values.cluster.name }}"
+    loadBalancer:
+      loadbalancername: "{{ .Values.cluster.name }}-k8s"
+      clusterName: "{{ .Values.cluster.name }}"
+    net:
+      clusterName: "{{ .Values.cluster.name }}"
+    internetService:
+      clusterName: "{{ .Values.cluster.name }}"
+    natService:
+      clusterName: "{{ .Values.cluster.name }}"
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: "{{ .Values.cluster.name }}-md-0"
+spec:
+  clusterName: "{{ .Values.cluster.name }}"
+  replicas: {{ .Values.cluster.workerNodes }}
+  selector:
+    matchLabels:
+  template:
+    spec:
+      clusterName: "{{ .Values.cluster.name }}"
+      version: "{{ .Values.cluster.version }}"
+      bootstrap:
+        configRef:
+          name: "{{ .Values.cluster.name }}-md-0"
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+      infrastructureRef:
+        name: "{{ .Values.cluster.name }}-md-0"
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: OscMachineTemplate
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: OscMachineTemplate
+metadata:
+  name: "{{ .Values.cluster.name }}-md-0"
+spec:
+  template:
+    spec:
+      node:
+        clusterName: "{{ .Values.cluster.name }}"
+        image:
+          name: "{{ .Values.cluster.imageName }}"
+        keypair:
+          name: "{{ .Values.cluster.keyPairName }}"
+        vm:
+          clusterName: "{{ .Values.cluster.name }}"
+          rootDisk:
+            rootDiskSize: {{ .Values.cluster.volumeSize }}
+            rootDiskIops: {{ .Values.cluster.volumeIops }}
+            rootDiskType: {{ .Values.cluster.volumeType }}
+          keypairName: "{{ .Values.cluster.keyPairName }}"
+          subregionName: {{ .Values.cluster.subregionName }}
+          vmType: "{{ .Values.cluster.vmType }}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: OscMachineTemplate
+metadata:
+  name: "{{ .Values.cluster.name }}-control-plane"
+spec:
+  template:
+    spec:
+      node:
+        clusterName: "{{ .Values.cluster.name }}"
+        image:
+          name: "{{ .Values.cluster.imageName }}"
+        keypair:
+          name: "{{ .Values.cluster.keyPairName }}"
+        vm:
+          clusterName: "{{ .Values.cluster.name }}"
+          keypairName: "{{ .Values.cluster.keyPairName }}"
+          rootDisk:
+            rootDiskSize: {{ .Values.cluster.volumeSize }}
+            rootDiskIops: {{ .Values.cluster.volumeIops }}
+            rootDiskType: {{ .Values.cluster.volumeType }}
+          subregionName: {{ .Values.cluster.subregionName }}
+          role: controlplane
+          loadBalancerName: "{{ .Values.cluster.name }}-k8s"
+          vmType: "{{ .Values.cluster.vmType }}"
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: "{{ .Values.cluster.name }}-md-0"
+spec:
+  template:
+    spec:
+      files:
+        - content: |
+            #!/bin/sh
+
+            curl https://github.com/opencontainers/runc/releases/download/v1.1.1/runc.amd64 -Lo /tmp/runc.amd64
+            chmod +x /tmp/runc.amd64
+            cp -f /tmp/runc.amd64 /usr/local/sbin/runc
+          owner: root:root
+          path: /tmp/set_runc.sh
+          permissions: "0744"
+      joinConfiguration:
+        nodeRegistration:
+          name: "{{ ds.meta_data.local_hostname }}"
+          kubeletExtraArgs:
+            cloud-provider: external
+            provider-id: osc://'{{ ds.meta_data.instance_id }}'
+      preKubeadmCommands:
+        - sh /tmp/set_runc.sh
+---
+kind: KubeadmControlPlane
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+metadata:
+  name: "{{ .Values.cluster.name }}-control-plane"
+spec:
+  replicas: {{ .Values.cluster.masterNodes }}
+  machineTemplate:
+    infrastructureRef:
+      kind: OscMachineTemplate
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      name: "{{ .Values.cluster.name }}-control-plane"
+  kubeadmConfigSpec:
+    initConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+          cloud-provider: external
+          provider-id: osc://'{{ ds.meta_data.instance_id }}'
+        name: '{{ ds.meta_data.local_hostname }}'
+    files:
+      - content: |
+          #!/bin/sh
+
+          curl https://github.com/opencontainers/runc/releases/download/v1.1.1/runc.amd64 -Lo /tmp/runc.amd64
+          chmod +x /tmp/runc.amd64
+          cp -f /tmp/runc.amd64 /usr/local/sbin/runc
+        owner: root:root
+        path: /tmp/set_runc.sh
+        permissions: "0744"
+    joinConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+          cloud-provider: external
+          provider-id: osc://'{{ ds.meta_data.instance_id }}'
+    preKubeadmCommands:
+      - sh /tmp/set_runc.sh
+  version: "{{ .Values.cluster.version }}"

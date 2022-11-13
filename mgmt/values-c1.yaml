@@ -1,0 +1,12 @@
+cluster:
+  name: capo-argocd
+  masterNodes: 1
+  workerNodes: 1
+  imageName:  ubuntu-2004-2004-kubernetes-v1.22.11-2022-08-22 
+  keyPairName: cluster-api-test
+  volumeSize: 30
+  volumeIops: 1500
+  volumeType: io1
+  subregionName: eu-west-2a
+  vmType: tinav5.c4r8p1
+  version: v1.22.11
